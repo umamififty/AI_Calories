@@ -7,7 +7,7 @@ class AIEngine:
     Handles all communication with the Ollama model
     to parse user input.
     """
-    def __init__(self, model: str = "qwen3:0.6b"):
+    def __init__(self, model: str = "llama3.2:1b"):
         """
         Initializes the AI engine.
 
@@ -55,17 +55,16 @@ class AIEngine:
         2. **PLURALS:** ALWAYS return the singular form of an item. "apples" -> "apple".
         3. **LANGUAGE:** If the user uses Japanese (e.g., "白ご飯"), use the
            common English equivalent (e.g., "white rice").
+        4. **ADJECTIVES:** - **KEEP** adjectives that affect nutrition (e.g., "fried", "grilled", "large", "small", "skim", "creamy").
+           - **DISCARD** subjective adjectives (e.g., "delicious", "yummy", "nice", "fresh").
         
         **EXAMPLES:**
         
-        User: For breakfast, I had 2 eggs, some bacon, and a coffee.
-        Response: {{"items": ["egg", "egg", "bacon", "coffee"]}}
+        User: I had a delicious large fried chicken and a coke.
+        Response: {{"items": ["large fried chicken", "coke"]}}
         
-        User: I ate a sandwich for lunch.
-        Response: {{"clarification": "What kind of sandwich was it?"}}
-        
-        User: I had two large apples.
-        Response: {{"items": ["apple", "apple"]}}
+        User: For breakfast, I had 2 boiled eggs and a black coffee.
+        Response: {{"items": ["boiled egg", "boiled egg", "black coffee"]}}
         
         User: 朝ご飯は白ご飯と納豆でした
         Response: {{"items": ["white rice", "natto"]}}
@@ -257,3 +256,26 @@ class AIEngine:
         except Exception as e:
             print(f"AI Error: Failed to parse override. Error: {e}")
             return None
+        
+        # ... (keep existing methods) ...
+
+    def translate(self, text: str) -> str:
+        """
+        Simple text-to-text translation. Faster than JSON mode.
+        """
+        # Optimization: Skip very short garbage strings like "イ" or "●"
+        if len(text) < 2 and text not in ["小", "中", "大"]: 
+            return text
+
+        print(f"   🤖 AI Translating: '{text}'...")
+        prompt = f"Translate this Japanese food menu item to English. Output ONLY the English name. No explanations. Text: {text}"
+        
+        try:
+            response = ollama.chat(
+                model=self.model,
+                messages=[{'role': 'user', 'content': prompt}],
+            )
+            return response['message']['content'].strip()
+        except Exception as e:
+            print(f"Translation Error: {e}")
+            return text
