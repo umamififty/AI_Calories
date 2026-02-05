@@ -1,0 +1,13 @@
+# Existing dependencies
+ollama
+openfoodfacts
+
+# GUI - Menu Bar App (macOS only)
+rumps
+
+# Data Visualization
+matplotlib
+tk
+
+# Desktop GUI (cross-platform alternative)
+toga
