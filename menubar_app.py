@@ -2,7 +2,6 @@ import rumps
 import sys
 import os
 from datetime import datetime, timedelta
-import threading
 
 sys.path.append(os.getcwd())
 from app.core.database import FoodDatabase
@@ -307,20 +306,124 @@ class CalorieMenuBarComplete(rumps.App):
     
     @rumps.clicked("📊 Open Detailed Charts")
     def show_charts(self, _):
-        """Open full chart window in background"""
-        def open_viz():
-            try:
-                from app.visualization.charts import NutritionVisualizer
-                viz = NutritionVisualizer(self.db)
-                viz.show_dashboard()
-            except Exception as e:
-                rumps.alert(
-                    title="Chart Error",
-                    message=f"Failed: {str(e)}"
-                )
+        """Open chart window in a subprocess to avoid AppKit conflicts"""
+        import subprocess
+        import sys
         
-        thread = threading.Thread(target=open_viz, daemon=True)
-        thread.start()
+        # Create a standalone chart script
+        chart_script = '''
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+import sys
+import os
+
+sys.path.append(os.getcwd())
+from app.core.database import FoodDatabase
+
+db = FoodDatabase("data/nutrition.db")
+
+# Get weekly data
+data = {'dates': [], 'calories': [], 'protein': [], 'fat': [], 'carbs': []}
+today = datetime.now().date()
+for i in range(7):
+    date = today - timedelta(days=6-i)
+    logs = db.get_daily_log(date.isoformat())
+    totals = {'calories': 0, 'protein': 0, 'fat': 0, 'carbs': 0}
+    for log in logs:
+        for key in totals.keys():
+            totals[key] += log.get(key, 0)
+    data['dates'].append(date.strftime('%a'))
+    for key in ['calories', 'protein', 'fat', 'carbs']:
+        data[key].append(totals[key])
+
+# Get today's data
+today_logs = db.get_daily_log(today.isoformat())
+
+# Create charts
+fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 8))
+fig.patch.set_facecolor('#F5F5F5')
+fig.suptitle('📊 Nutrition Dashboard', fontsize=18, fontweight='bold')
+
+# Chart 1: Weekly Calories
+bars = ax1.bar(data['dates'], data['calories'], color='#3498DB', alpha=0.8)
+ax1.axhline(y=2000, color='#E74C3C', linestyle='--', linewidth=2, label='Goal')
+ax1.set_title('Weekly Calorie Intake', fontweight='bold')
+ax1.set_ylabel('Calories (kcal)')
+ax1.legend()
+ax1.grid(axis='y', alpha=0.3)
+for bar in bars:
+    h = bar.get_height()
+    if h > 0:
+        ax1.text(bar.get_x() + bar.get_width()/2., h, f'{int(h)}',
+                ha='center', va='bottom', fontsize=9)
+
+# Chart 2: Macro Pie
+macro_totals = {
+    'Protein': sum(log.get('protein', 0) * 4 for log in today_logs),
+    'Fat': sum(log.get('fat', 0) * 9 for log in today_logs),
+    'Carbs': sum(log.get('carbs', 0) * 4 for log in today_logs)
+}
+if sum(macro_totals.values()) > 0:
+    colors = ['#E74C3C', '#F39C12', '#3498DB']
+    wedges, texts, autotexts = ax2.pie(
+        macro_totals.values(), labels=macro_totals.keys(),
+        colors=colors, autopct='%1.1f%%', startangle=90
+    )
+    for autotext in autotexts:
+        autotext.set_color('white')
+        autotext.set_fontweight('bold')
+else:
+    ax2.text(0.5, 0.5, 'No data yet', ha='center', va='center', fontsize=12)
+ax2.set_title("Today's Macro Split", fontweight='bold')
+
+# Chart 3: Weekly Macros
+if sum(data['protein']) > 0:
+    ax3.stackplot(data['dates'], data['protein'], data['fat'], data['carbs'],
+                  labels=['Protein', 'Fat', 'Carbs'],
+                  colors=['#E74C3C', '#F39C12', '#3498DB'], alpha=0.7)
+    ax3.legend(loc='upper left')
+else:
+    ax3.text(0.5, 0.5, 'No data yet', ha='center', va='center', fontsize=12)
+ax3.set_title('Weekly Macro Trends', fontweight='bold')
+ax3.set_ylabel('Grams')
+ax3.grid(axis='y', alpha=0.3)
+
+# Chart 4: Progress
+total_cals = sum(log.get('calories', 0) for log in today_logs)
+goal = 2000
+pct = min((total_cals / goal) * 100, 150)
+color = '#2ECC71' if pct <= 100 else '#E74C3C'
+ax4.barh(['Progress'], [min(pct, 100)], height=0.5, color=color, alpha=0.8)
+if pct > 100:
+    ax4.barh(['Progress'], [pct - 100], left=100, height=0.5, color='#E74C3C', alpha=0.5)
+ax4.set_xlim(0, 150)
+ax4.set_xlabel('Percentage of Goal')
+ax4.set_yticks([])
+ax4.text(75, 0, f'{int(total_cals)} / {goal} kcal\\n{pct:.1f}%',
+        ha='center', va='center', fontsize=11, fontweight='bold')
+ax4.set_title("Today's Calorie Progress", fontweight='bold')
+
+plt.tight_layout()
+plt.show()
+'''
+        
+        try:
+            # Write temp script
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                f.write(chart_script)
+                script_path = f.name
+            
+            # Run in subprocess
+            subprocess.Popen([sys.executable, script_path])
+            
+        except Exception as e:
+            rumps.alert(
+                title="Chart Error",
+                message=f"Failed to open charts: {str(e)}"
+            )
     
     @rumps.clicked("🔄 Refresh Now")
     def manual_refresh(self, _):
